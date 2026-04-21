@@ -1,0 +1,7 @@
+pytest
+pytest-cov
+fakeredis
+httpx
+fastapi
+uvicorn[standard]
+redis

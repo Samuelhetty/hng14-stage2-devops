@@ -1,0 +1,25 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+api/.env
+worker/.env
+frontend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+htmlcov/
+coverage.xml
+.coverage
+dist/
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Docker
+*.log

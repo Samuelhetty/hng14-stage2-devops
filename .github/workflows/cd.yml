@@ -1,0 +1,271 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A failure in any stage blocks all downstream stages via 'needs:'
+jobs:
+
+  # Lint
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Python linting with flake8
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install flake8
+        run: pip install flake8
+      - name: Lint Python (api)
+        run: flake8 api/main.py --max-line-length=120
+      - name: Lint Python (worker)
+        run: flake8 worker/worker.py --max-line-length=120
+
+      # JavaScript linting with eslint
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install frontend deps
+        run: cd frontend && npm ci
+      - name: Lint JavaScript
+        run: cd frontend && npx eslint app.js --env node --env es2021 --parser-options=ecmaVersion:2021
+
+      # Dockerfile linting with hadolint
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: api/Dockerfile
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: worker/Dockerfile
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: frontend/Dockerfile
+
+  # Test
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: pip install -r api/tests/requirements-test.txt
+      - name: Run pytest with coverage
+        run: |
+          cd api
+          pytest tests/ --cov=. --cov-report=xml --cov-report=term -v
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: api/coverage.xml
+
+  # Build
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    # Local registry runs as a service container within this job
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and push all images
+        run: |
+          SHA=${{ github.sha }}
+          for svc in api worker frontend; do
+            echo "Building $svc..."
+            docker build \
+              -t localhost:5000/${svc}:${SHA} \
+              -t localhost:5000/${svc}:latest \
+              ./${svc}
+            docker push localhost:5000/${svc}:${SHA}
+            docker push localhost:5000/${svc}:latest
+            echo "Pushed localhost:5000/${svc}:${SHA}"
+          done
+
+  # Security Scan
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: build
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    steps:
+      - uses: actions/checkout@v4
+      # Rebuild locally (registry doesn't persist between jobs on free tier)
+      - name: Rebuild images for scanning
+        run: |
+          for svc in api worker frontend; do
+            docker build -t localhost:5000/${svc}:latest ./${svc}
+          done
+
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "localhost:5000/api:latest"
+          format: "sarif"
+          output: "trivy-api.sarif"
+          severity: "CRITICAL"
+          exit-code: "1"
+
+      - name: Scan Worker image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "localhost:5000/worker:latest"
+          format: "sarif"
+          output: "trivy-worker.sarif"
+          severity: "CRITICAL"
+          exit-code: "1"
+
+      - name: Scan Frontend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "localhost:5000/frontend:latest"
+          format: "sarif"
+          output: "trivy-frontend.sarif"
+          severity: "CRITICAL"
+          exit-code: "1"
+
+      - name: Upload SARIF results
+        uses: actions/upload-artifact@v4
+        if: always()   # upload even if scan fails so you can see what was found
+        with:
+          name: trivy-sarif-results
+          path: "*.sarif"
+
+  # Integration Test
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: security-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env from example
+        run: |
+          cp .env.example .env
+          # Override password for CI — never stored in repo
+          echo "REDIS_PASSWORD=ci_test_password_$(date +%s)" >> .env
+
+      - name: Start full stack
+        run: docker compose up -d --build
+
+      - name: Wait for all services healthy
+        run: |
+          echo "Waiting for API..."
+          timeout 90 bash -c \
+            'until curl -sf http://localhost:8000/health > /dev/null; do sleep 3; done'
+          echo "Waiting for Frontend..."
+          timeout 60 bash -c \
+            'until curl -sf http://localhost:3000/health > /dev/null; do sleep 3; done'
+          echo "All services healthy"
+
+      - name: Submit a job through the frontend proxy
+        id: submit
+        run: |
+          RESPONSE=$(curl -sf -X POST http://localhost:3000/submit)
+          echo "Submit response: $RESPONSE"
+          JOB_ID=$(echo "$RESPONSE" | jq -r '.job_id')
+          echo "JOB_ID=$JOB_ID" >> $GITHUB_ENV
+          echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
+
+      - name: Poll until job completes (max 60s)
+        run: |
+          JOB_ID=${{ steps.submit.outputs.job_id }}
+          echo "Polling job $JOB_ID..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -sf http://localhost:8000/jobs/$JOB_ID | jq -r '.status')
+            echo "  attempt $i — status: $STATUS"
+            if [ "$STATUS" = "completed" ]; then
+              echo "Job completed successfully"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: job did not complete within 60 seconds"
+          exit 1
+
+      - name: Tear down stack (always runs)
+        if: always()
+        run: docker compose down -v --remove-orphans
+
+  # Deploy (main branch only)
+  deploy:
+    runs-on: ubuntu-latest
+    needs: integration-test
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Rolling deploy to production
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+              "SHA=${SHA}" 'bash -s' << 'ENDSSH'
+            set -euo pipefail
+            cd ~/hng14-stage2-devops
+            git pull origin main
+
+            SERVICES="api worker frontend"
+            for SVC in $SERVICES; do
+              echo "=== Rolling update: $SVC ==="
+
+              # Build new image tagged with git SHA
+              docker build -t ${SVC}:${SHA} ./${SVC}
+
+              # Start new container with a temporary name
+              docker run -d \
+                --name ${SVC}_canary \
+                --network internal \
+                --env-file .env \
+                ${SVC}:${SHA}
+
+              # Wait up to 60s for the new container to become healthy
+              HEALTHY=false
+              for i in $(seq 1 12); do
+                HEALTH=$(docker inspect --format='{{.State.Health.Status}}' ${SVC}_canary 2>/dev/null || echo "none")
+                echo "  health check $i/12: $HEALTH"
+                if [ "$HEALTH" = "healthy" ]; then
+                  HEALTHY=true
+                  break
+                fi
+                sleep 5
+              done
+
+              if [ "$HEALTHY" = "false" ]; then
+                echo "ABORT: $SVC canary did not become healthy in 60s — leaving old container running"
+                docker stop ${SVC}_canary && docker rm ${SVC}_canary
+                exit 1
+              fi
+
+              # Health check passed — stop and replace old container
+              OLD=$(docker ps -q --filter "name=^${SVC}$")
+              if [ -n "$OLD" ]; then
+                docker stop $OLD
+                docker rm $OLD
+              fi
+              docker rename ${SVC}_canary ${SVC}
+              echo "  $SVC updated successfully"
+            done
+
+            echo "=== Deploy complete ==="
+          ENDSSH
