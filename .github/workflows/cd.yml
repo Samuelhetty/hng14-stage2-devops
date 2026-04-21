@@ -249,13 +249,13 @@ jobs:
             git pull origin main
 
             echo "🧹 Cleaning old orphan containers..."
-            docker-compose down --remove-orphans || true
+            docker compose down --remove-orphans || true
 
             echo "📦 Building new version..."
-            docker-compose build
+            docker compose build
 
             echo "🚀 Starting new stack..."
-            docker-compose up -d
+            docker compose up -d
 
             echo "⏳ Waiting for API health..."
 
@@ -271,7 +271,7 @@ jobs:
             # final safety check
             curl -sf http://localhost:8000/health || {
               echo "❌ Health check failed — rolling back"
-              docker-compose down
+              docker compose down
               exit 1
             }
 
