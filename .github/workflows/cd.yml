@@ -111,7 +111,7 @@ jobs:
           done
 
       - name: Scan API image
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@v0
         with:
           image-ref: "localhost:5000/api:latest"
           format: "sarif"
@@ -121,7 +121,7 @@ jobs:
           exit-code: "1"
 
       - name: Scan Worker image
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@v0
         with:
           image-ref: "localhost:5000/worker:latest"
           format: "sarif"
@@ -131,7 +131,7 @@ jobs:
           exit-code: "1"
 
       - name: Scan Frontend image
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@v0
         with:
           image-ref: "localhost:5000/frontend:latest"
           format: "sarif"
