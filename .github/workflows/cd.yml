@@ -249,13 +249,13 @@ jobs:
             git pull origin main
 
             # Rolling update — bring up new containers
-            docker compose pull || true
-            docker compose up --build -d --no-deps --scale api=2 api || true
+            docker-compose pull || true
+            docker-compose up --build -d --no-deps --scale api=2 api || true
 
             # Wait for new api container to be healthy (max 60s)
             echo "Waiting for health check..."
             timeout 60 bash -c '
-              until docker compose ps api | grep -E "healthy"; do
+              until docker-compose ps api | grep -E "healthy"; do
                 sleep 3
               done
             ' || {
@@ -264,6 +264,6 @@ jobs:
             }
 
             # Full stack update now that api is confirmed healthy
-            docker compose up --build -d
+            docker-compose up --build -d
 
             echo "Deploy complete!"
