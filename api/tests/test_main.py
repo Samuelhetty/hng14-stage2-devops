@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 def client():
     fake = fakeredis.FakeRedis(decode_responses=True)
     with patch("redis.Redis", return_value=fake):
-        from main import app
+        from api.main import app
         yield TestClient(app)
 
 
