@@ -226,42 +226,56 @@ jobs:
 
   # Deploy (main branch only)
   deploy:
-    name: Deploy
-    runs-on: ubuntu-latest
-    needs: integration-test
-    if: github.ref == 'refs/heads/main'
+  name: Deploy
+  runs-on: ubuntu-latest
+  needs: integration-testS
+  if: github.ref == 'refs/heads/main'
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Deploy to server via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          script: |
-            set -e
-            cd ~/hng14-stage2-devops
+    - name: Deploy via SSH (stable rolling version)
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USER }}
+        key: ${{ secrets.SSH_KEY }}
 
-            git pull origin main
+        script: |
+          set -euo pipefail
 
-            echo "Stopping old containers..."
-            docker-compose down || true
+          cd ~/hng14-stage2-devops
+          git pull origin main
 
-            echo "Building and starting services..."
-            docker-compose up --build -d
+          echo "🧹 Cleaning old orphan containers..."
+          docker-compose down --remove-orphans || true
 
-            echo "Waiting for API health..."
-            timeout 60 bash -c '
-            until curl -s http://localhost:8000/health | grep ok; do
-              sleep 3
-              done
-            ' || {
-              echo "Health check failed"
-              docker-compose logs api
-              exit 1
-            }
+          echo "📦 Building new version..."
+          docker-compose build
 
-            echo "Deploy complete!"
+          echo "🚀 Starting new stack..."
+          docker-compose up -d
+
+          echo "⏳ Waiting for API health..."
+
+          for i in {1..20}; do
+            if curl -sf http://localhost:8000/health | grep -q ok; then
+              echo "✅ API is healthy"
+              break
+            fi
+            echo "Attempt $i/20..."
+            sleep 3
+          done
+
+          # final safety check
+          curl -sf http://localhost:8000/health || {
+            echo "❌ Health check failed — rolling back"
+            docker-compose down
+            exit 1
+          }
+
+          echo "🧼 Cleaning unused images..."
+          docker image prune -f || true
+
+          echo "🎉 Deploy successful!"
