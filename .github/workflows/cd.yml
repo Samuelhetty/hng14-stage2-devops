@@ -245,25 +245,23 @@ jobs:
             set -e
             cd ~/hng14-stage2-devops
 
-            # Pull latest code
             git pull origin main
 
-            # Rolling update — bring up new containers
-            docker-compose pull || true
-            docker-compose up --build -d --no-deps --scale api=2 api || true
+            echo "Stopping old containers..."
+            docker-compose down || true
 
-            # Wait for new api container to be healthy (max 60s)
-            echo "Waiting for health check..."
+            echo "Building and starting services..."
+            docker-compose up --build -d
+
+            echo "Waiting for API health..."
             timeout 60 bash -c '
-              until docker-compose ps api | grep -E "healthy"; do
-                sleep 3
+            until curl -s http://localhost:8000/health | grep ok; do
+              sleep 3
               done
             ' || {
-              echo "Health check failed — aborting, old container still running"
+              echo "Health check failed"
+              docker-compose logs api
               exit 1
             }
-
-            # Full stack update now that api is confirmed healthy
-            docker-compose up --build -d
 
             echo "Deploy complete!"
