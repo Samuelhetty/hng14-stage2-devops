@@ -1,13 +1,10 @@
 {
   "name": "frontend",
   "version": "1.0.0",
-  "type": "module",
   "main": "app.js",
 
   "scripts": {
-    "lint": "eslint ."
-  },
-  "scripts": {
+    "lint": "eslint .",
     "start": "node app.js"
   },
   "dependencies": {
