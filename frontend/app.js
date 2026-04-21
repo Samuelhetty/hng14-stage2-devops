@@ -20,6 +20,7 @@ app.post('/submit', async (req, res) => {
     const response = await axios.post(`${API_URL}/jobs`);
     res.json(response.data);
   } catch (err) {
+    console.error(err.message);
     res.status(500).json({ error: 'Failed to submit job' });
   }
 });
