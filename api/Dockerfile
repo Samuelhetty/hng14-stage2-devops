@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 # install dependencies
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim-bookworm AS builder
 WORKDIR /build
 COPY requirements.txt .
 # Install into an isolated prefix so we can copy only the result
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # lean runtime image
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 WORKDIR /app
 
 # Non-root user (FIX: security requirement)

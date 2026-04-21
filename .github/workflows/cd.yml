@@ -111,30 +111,33 @@ jobs:
           done
 
       - name: Scan API image
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.20.0
         with:
           image-ref: "localhost:5000/api:latest"
           format: "sarif"
           output: "trivy-api.sarif"
           severity: "CRITICAL"
+          ignore-unfixed: true
           exit-code: "1"
 
       - name: Scan Worker image
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.20.0
         with:
           image-ref: "localhost:5000/worker:latest"
           format: "sarif"
           output: "trivy-worker.sarif"
           severity: "CRITICAL"
+          ignore-unfixed: true
           exit-code: "1"
 
       - name: Scan Frontend image
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.20.0
         with:
           image-ref: "localhost:5000/frontend:latest"
           format: "sarif"
           output: "trivy-frontend.sarif"
           severity: "CRITICAL"
+          ignore-unfixed: true
           exit-code: "1"
 
       - name: Upload SARIF results

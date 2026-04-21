@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 # install production dependencies only
-FROM node:20-slim AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 # npm ci uses lockfile for reproducible installs; --omit=dev excludes devDependencies
 RUN npm ci --omit=dev
 
 # lean runtime image
-FROM node:20-slim
+FROM node:20-alpine
 WORKDIR /app
 
 RUN addgroup --system app && adduser --system --ingroup app --no-create-home app
