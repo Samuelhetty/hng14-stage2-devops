@@ -156,7 +156,7 @@ jobs:
 
       - name: Create .env from example
         run: |
-          cp .env.example .env
+          cp .env.sample .env
           # Override password for CI — never stored in repo
           echo "REDIS_PASSWORD=ci_test_password_$(date +%s)" >> .env
 
