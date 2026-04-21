@@ -149,80 +149,80 @@ jobs:
 
   # Integration Test
   integration-test:
-  runs-on: ubuntu-latest
-  needs: security-scan
-  steps:
-    - uses: actions/checkout@v4
+    runs-on: ubuntu-latest
+    needs: security-scan
+    steps:
+      - uses: actions/checkout@v4
 
-    - name: Create .env for CI
-      run: |
-        cat > .env << 'EOF'
-        REDIS_HOST=redis
-        REDIS_PORT=6379
-        REDIS_PASSWORD=ci_test_password
-        APP_ENV=production
-        API_URL=http://api:8000
-        EOF
+      - name: Create .env for CI
+        run: |
+          cat > .env << 'EOF'
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          REDIS_PASSWORD=ci_test_password
+          APP_ENV=production
+          API_URL=http://api:8000
+          EOF
 
-    - name: Start full stack
-      run: docker compose up -d --build
+      - name: Start full stack
+        run: docker compose up -d --build
 
-    - name: Wait for API healthy
-      run: |
-        echo "Waiting for API..."
-        for i in $(seq 1 40); do
-          printf "  attempt %d/40: " $i
-          if curl -sf http://localhost:8000/health; then
-            echo "API ready"
-            break
-          fi
-          if [ $i -eq 40 ]; then
-            echo "API never became healthy"
-            docker compose logs api
-            docker compose logs redis
-            exit 1
-          fi
-          sleep 5
-        done
+      - name: Wait for API healthy
+        run: |
+          echo "Waiting for API..."
+          for i in $(seq 1 40); do
+            printf "  attempt %d/40: " $i
+            if curl -sf http://localhost:8000/health; then
+              echo "API ready"
+              break
+            fi
+            if [ $i -eq 40 ]; then
+              echo "API never became healthy"
+              docker compose logs api
+              docker compose logs redis
+              exit 1
+            fi
+            sleep 5
+          done
 
-    - name: Wait for Frontend healthy
-      run: |
-        echo "Waiting for Frontend..."y
+      - name: Wait for Frontend healthy
+        run: |
+          echo "Waiting for Frontend..."y
         
-        for i in $(seq 1 20); do
-          printf "  attempt %d/20: " $i
-          if curl -sf http://localhost:3000/health; then
-            echo "Frontend ready"
-            break
-          fi
-          if [ $i -eq 20 ]; then
-            echo "Frontend never became healthy"
-            docker compose logs frontend
-            exit 1
-          fi
-          sleep 5
-        done
+          for i in $(seq 1 20); do
+            printf "  attempt %d/20: " $i
+            if curl -sf http://localhost:3000/health; then
+              echo "Frontend ready"
+              break
+            fi
+            if [ $i -eq 20 ]; then
+              echo "Frontend never became healthy"
+              docker compose logs frontend
+              exit 1
+            fi
+            sleep 5
+          done
 
-    - name: Submit job and poll for completion
-      run: |
-        JOB_ID=$(curl -sf -X POST http://localhost:8000/jobs | jq -r '.job_id')
-        echo "Submitted job: $JOB_ID"
-        for i in $(seq 1 30); do
-          STATUS=$(curl -sf http://localhost:8000/jobs/$JOB_ID | jq -r '.status')
-          echo "  poll $i/30: $STATUS"
-          if [ "$STATUS" = "completed" ]; then
-            echo "Job completed successfully"
-            exit 0
-          fi
-          sleep 2
-        done
-        echo "Job did not complete"
-        docker compose logs worker
-        exit 1
+      - name: Submit job and poll for completion
+        run: |
+          JOB_ID=$(curl -sf -X POST http://localhost:8000/jobs | jq -r '.job_id')
+          echo "Submitted job: $JOB_ID"
+          for i in $(seq 1 30); do
+            STATUS=$(curl -sf http://localhost:8000/jobs/$JOB_ID | jq -r '.status')
+            echo "  poll $i/30: $STATUS"
+            if [ "$STATUS" = "completed" ]; then
+              echo "Job completed successfully"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Job did not complete"
+          docker compose logs worker
+          exit 1
 
-    - name: Tear down
-      if: always()
-      run: docker compose down -v --remove-orphans
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans
 
   # Deploy (main branch only)
   deploy:
